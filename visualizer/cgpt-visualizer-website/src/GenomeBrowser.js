@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as d3 from 'd3';
 import chromosomeData from './data/chromosome_data.json';
+import ChatbotWidget from './ChatbotWidget';
 
 const geneColors = [
   '#3498db', '#2ecc71', '#e74c3c', '#f1c40f', '#9b59b6',
@@ -303,7 +304,7 @@ function GenomeBrowser({ genes }) {
       });
     const xOverview = d3.scaleLinear()
       .domain([0, realChromosome.length])
-      .range([margin.left, availableWidth - margin.left - margin.right]);
+      .range([margin.left, availableWidth - margin.right]);
     // Chromosome bar (move lower)
     const overviewBarY = 32; // was 12, now lower 
     overviewSvg.append('rect')
@@ -314,9 +315,9 @@ function GenomeBrowser({ genes }) {
       .attr('rx', 10)
       .attr('fill', '#cccccc');
 
-    // Genes (only render selected gene)
+    // Genes
     overviewSvg.selectAll('.gene')
-      .data(selectedGene ? [selectedGene] : [])
+      .data(realChromosome.genes) // Use realChromosome.genes
       .enter()
       .append('rect')
       .attr('class', 'gene')
@@ -324,24 +325,29 @@ function GenomeBrowser({ genes }) {
       .attr('y', overviewBarY + 1)
       .attr('width', d => Math.max(1, xOverview(d.end) - xOverview(d.start)))
       .attr('height', 14)
-      .attr('fill', (d, i) => getGeneColor(geneIndexMap.current.get(d.id)))
+      .attr('fill', (d, i) => getGeneColor(i))
       .attr('rx', 5)
-      .style('opacity', 1)
-      .attr('stroke', '#000')
-      .attr('stroke-width', 2)
+      .style('opacity', d => selectedGene?.id === d.id ? 1 : 0) // Only show selected gene
+      .attr('stroke', d => selectedGene?.id === d.id ? '#000' : 'none')
+      .attr('stroke-width', d => selectedGene?.id === d.id ? 2 : 0)
       .attr('cursor', 'pointer')
       .style('pointer-events', 'all')
       .on('mouseover', function (event, d) {
         throttledSetHoveredGene(d);
+
+        // Don't change opacity on hover anymore, only selection matters
         d3.select(this)
           .attr('stroke', '#000')
           .attr('stroke-width', 1);
       })
       .on('mouseout', function (event, d) {
         throttledSetHoveredGene(null);
+
+        // Only show selected gene
         d3.select(this)
-          .attr('stroke', '#000')
-          .attr('stroke-width', 2);
+          .style('opacity', selectedGene?.id === d.id ? 1 : 0)
+          .attr('stroke', selectedGene?.id === d.id ? '#000' : 'none')
+          .attr('stroke-width', selectedGene?.id === d.id ? 2 : 0);
       })
       .on('click', function (event, d) {
         event.stopPropagation();
@@ -407,6 +413,43 @@ function GenomeBrowser({ genes }) {
       zoomRect.call(dragZoomRect);
     }
 
+    // Make genes easier to select in overview
+    overviewSvg.selectAll('.gene-hitbox')
+      .data(realChromosome.genes)
+      .enter()
+      .append('rect')
+      .attr('class', 'gene-hitbox')
+      .attr('x', d => Math.max(margin.left, xOverview(d.start) - 5))
+      .attr('y', overviewBarY - 4)
+      .attr('width', d => Math.max(10, xOverview(d.end) - xOverview(d.start) + 10))
+      .attr('height', 24)
+      .attr('fill', 'transparent')
+      .attr('cursor', 'pointer')
+      .style('pointer-events', 'all')
+      .on('mouseover', function (event, d) {
+        throttledSetHoveredGene(d);
+
+        // Only highlight the stroke, don't change opacity
+        overviewSvg.selectAll('.gene')
+          .filter(g => g.id === d.id)
+          .attr('stroke', '#000')
+          .attr('stroke-width', 1);
+      })
+      .on('mouseout', function (event, d) {
+        throttledSetHoveredGene(null);
+
+        // Only show selected gene
+        overviewSvg.selectAll('.gene')
+          .filter(g => g.id === d.id)
+          .style('opacity', selectedGene?.id === d.id ? 1 : 0)
+          .attr('stroke', selectedGene?.id === d.id ? '#000' : 'none')
+          .attr('stroke-width', selectedGene?.id === d.id ? 2 : 0);
+      })
+      .on('click', function (event, d) {
+        event.stopPropagation();
+        setSelectedGene(d);
+      });
+
     // --- SCALES for + strand (overview bar, above the bar) ---
     const overviewTicks = xOverview.ticks(10).filter(t => t >= 0 && t <= realChromosome.length);
     overviewSvg.selectAll('.overview-scale-plus')
@@ -444,7 +487,7 @@ function GenomeBrowser({ genes }) {
     // Scales
     const xDetail = d3.scaleLinear()
       .domain(zoomRegion)
-      .range([margin.left, availableWidth - margin.left - margin.right]);
+      .range([margin.left, availableWidth - margin.right]);
     // Add a clipPath for the chromosome bar area (now tall enough for genes below)
     const chrBarY = 20;
     const chrBarH = 24;
@@ -964,91 +1007,106 @@ function GenomeBrowser({ genes }) {
 
 
       // --- Place genes along the X shape ---
-      // Only render selected gene
-      if (selectedGene) {
-        const gene = selectedGene;
-        const index = geneIndexMap.current.get(gene.id);
-        // Map gene start/end position to [0,1] along the linear chromosome
-        const posNormStart = gene.start / realChromosome.length;
-        const posNormEnd = gene.end / realChromosome.length;
-        const clamp = (val) => Math.max(0.001, Math.min(0.999, val));
-        const clampedNormStart = clamp(posNormStart);
-        const clampedNormEnd = clamp(posNormEnd);
-        const xCurve1Start = xMax - (xMax - xMin) * clampedNormStart;
-        const xCurve2Start = xMin + (xMax - xMin) * clampedNormStart;
-        const xCurve1End = xMax - (xMax - xMin) * clampedNormEnd;
-        const xCurve2End = xMin + (xMax - xMin) * clampedNormEnd;
-        const yCurve1Start = Math.log(xCurve1Start / (1 - xCurve1Start));
-        const svgX1Start = scaleX(xCurve1Start);
-        const svgY1Start = scaleY(yCurve1Start);
-        const yCurve2Start = -Math.log(xCurve2Start / (1 - xCurve2Start));
-        const svgX2Start = scaleX(xCurve2Start);
-        const svgY2Start = scaleY(yCurve2Start);
-        const yCurve1End = Math.log(xCurve1End / (1 - xCurve1End));
-        const svgX1End = scaleX(xCurve1End);
-        const svgY1End = scaleY(yCurve1End);
-        const yCurve2End = -Math.log(xCurve2End / (1 - xCurve2End));
-        const svgX2End = scaleX(xCurve2End);
-        const svgY2End = scaleY(yCurve2End);
-        const geneStrokeWidth = 8;
-        const geneStrokeColor = '#ff0000';
-        const geneOpacity = 1;
-        const boundaryStrokeWidth = geneStrokeWidth + 2;
-        const boundaryOpacity = 1;
-        // --- Draw Black Boundary Path 1 (Behind) ---
-        svg.append('path')
-          .attr('d', `M ${svgX1Start},${svgY1Start} L ${svgX1End},${svgY1End}`)
-          .attr('stroke', '#000000')
-          .attr('stroke-width', boundaryStrokeWidth)
-          .attr('stroke-linecap', 'round')
-          .attr('fill', 'none')
-          .attr('opacity', boundaryOpacity);
-        // --- Draw Gene Path 1 ---
-        svg.append('path')
-          .attr('d', `M ${svgX1Start},${svgY1Start} L ${svgX1End},${svgY1End}`)
-          .attr('stroke', geneStrokeColor)
-          .attr('stroke-width', geneStrokeWidth)
-          .attr('stroke-linecap', 'round')
-          .attr('fill', 'none')
-          .attr('opacity', geneOpacity)
-          .attr('cursor', 'pointer')
-          .on('mouseover', function () {
-            throttledSetHoveredGene(gene);
-          })
-          .on('mouseout', function () {
-            throttledSetHoveredGene(null);
-          })
-          .on('click', function (event) {
-            event.stopPropagation();
-            setSelectedGene(gene);
-          });
-        // --- Draw Black Boundary Path 2 (Behind) ---
-        svg.append('path')
-          .attr('d', `M ${svgX2Start},${svgY2Start} L ${svgX2End},${svgY2End}`)
-          .attr('stroke', '#000000')
-          .attr('stroke-width', boundaryStrokeWidth)
-          .attr('stroke-linecap', 'round')
-          .attr('fill', 'none')
-          .attr('opacity', boundaryOpacity);
-        // --- Draw Gene Path 2 ---
-        svg.append('path')
-          .attr('d', `M ${svgX2Start},${svgY2Start} L ${svgX2End},${svgY2End}`)
-          .attr('stroke', geneStrokeColor)
-          .attr('stroke-width', geneStrokeWidth)
-          .attr('stroke-linecap', 'round')
-          .attr('fill', 'none')
-          .attr('opacity', geneOpacity)
-          .attr('cursor', 'pointer')
-          .on('mouseover', function () {
-            throttledSetHoveredGene(gene);
-          })
-          .on('mouseout', function () {
-            throttledSetHoveredGene(null);
-          })
-          .on('click', function (event) {
-            event.stopPropagation();
-            setSelectedGene(gene);
-          });
+      if (realChromosome.genes && realChromosome.genes.length > 0) {
+        realChromosome.genes.forEach((gene, index) => {
+          // Map gene start/end position to [0,1] along the linear chromosome
+          const posNormStart = gene.start / realChromosome.length;
+          const posNormEnd = gene.end / realChromosome.length;
+          
+          // Clamp to avoid issues near 0/1 for the log function
+          const clamp = (val) => Math.max(0.001, Math.min(0.999, val));
+          const clampedNormStart = clamp(posNormStart);
+          const clampedNormEnd = clamp(posNormEnd);
+
+          // Determine the corresponding x values for START points
+          const xCurve1Start = xMax - (xMax - xMin) * clampedNormStart;
+          const xCurve2Start = xMin + (xMax - xMin) * clampedNormStart;
+          // Determine the corresponding x values for END points
+          const xCurve1End = xMax - (xMax - xMin) * clampedNormEnd;
+          const xCurve2End = xMin + (xMax - xMin) * clampedNormEnd;
+
+          // Calculate coordinates for the START points
+          const yCurve1Start = Math.log(xCurve1Start / (1 - xCurve1Start));
+          const svgX1Start = scaleX(xCurve1Start);
+          const svgY1Start = scaleY(yCurve1Start);
+          const yCurve2Start = -Math.log(xCurve2Start / (1 - xCurve2Start));
+          const svgX2Start = scaleX(xCurve2Start);
+          const svgY2Start = scaleY(yCurve2Start);
+
+          // Calculate coordinates for the END points
+          const yCurve1End = Math.log(xCurve1End / (1 - xCurve1End));
+          const svgX1End = scaleX(xCurve1End);
+          const svgY1End = scaleY(yCurve1End);
+          const yCurve2End = -Math.log(xCurve2End / (1 - xCurve2End));
+          const svgX2End = scaleX(xCurve2End);
+          const svgY2End = scaleY(yCurve2End);
+          
+          // Style settings
+          const isSelected = selectedGene && selectedGene.id === gene.id;
+          const geneStrokeWidth = 8; // Constant thickness
+          const geneStrokeColor = isSelected ? '#ff0000' : getGeneColor(geneIndexMap.current.get(gene.id)); // Red when selected
+          const geneOpacity = isSelected ? 1 : 0; // Only show selected gene
+          const boundaryStrokeWidth = isSelected ? geneStrokeWidth + 2 : 0;
+          const boundaryOpacity = isSelected ? 1 : 0;
+
+          // --- Draw Black Boundary Path 1 (Behind) ---
+          svg.append('path')
+            .attr('d', `M ${svgX1Start},${svgY1Start} L ${svgX1End},${svgY1End}`)
+            .attr('stroke', '#000000') // Black boundary
+            .attr('stroke-width', boundaryStrokeWidth)
+            .attr('stroke-linecap', 'round')
+            .attr('fill', 'none')
+            .attr('opacity', boundaryOpacity);
+
+          // --- Draw Gene Path 1 ---
+          svg.append('path')
+            .attr('d', `M ${svgX1Start},${svgY1Start} L ${svgX1End},${svgY1End}`)
+            .attr('stroke', geneStrokeColor)
+            .attr('stroke-width', geneStrokeWidth)
+            .attr('stroke-linecap', 'round')
+            .attr('fill', 'none')
+            .attr('opacity', geneOpacity)
+            .attr('cursor', 'pointer')
+            .on('mouseover', function () {
+              throttledSetHoveredGene(gene);
+            })
+            .on('mouseout', function () {
+              throttledSetHoveredGene(null);
+            })
+            .on('click', function (event) {
+              event.stopPropagation();
+              setSelectedGene(gene);
+            });
+
+          // --- Draw Black Boundary Path 2 (Behind) ---
+          svg.append('path')
+            .attr('d', `M ${svgX2Start},${svgY2Start} L ${svgX2End},${svgY2End}`)
+            .attr('stroke', '#000000') // Black boundary
+            .attr('stroke-width', boundaryStrokeWidth)
+            .attr('stroke-linecap', 'round')
+            .attr('fill', 'none')
+            .attr('opacity', boundaryOpacity);
+
+          // --- Draw Gene Path 2 ---
+          svg.append('path')
+            .attr('d', `M ${svgX2Start},${svgY2Start} L ${svgX2End},${svgY2End}`)
+            .attr('stroke', geneStrokeColor)
+            .attr('stroke-width', geneStrokeWidth)
+            .attr('stroke-linecap', 'round')
+            .attr('fill', 'none')
+            .attr('opacity', geneOpacity)
+            .attr('cursor', 'pointer')
+            .on('mouseover', function () {
+              throttledSetHoveredGene(gene);
+            })
+            .on('mouseout', function () {
+              throttledSetHoveredGene(null);
+            })
+            .on('click', function (event) {
+              event.stopPropagation();
+              setSelectedGene(gene);
+            });
+        });
       }
     };
 
@@ -1436,50 +1494,7 @@ function GenomeBrowser({ genes }) {
         {/* Chatbot area (right) */}
         <div style={{ width: '33.3%', minWidth: 250, height: '100%', background: '#fff', borderRadius: 18, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', boxSizing: 'border-box', padding: '28px 30px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 22, letterSpacing: 0.5 }}>ChatBot</div>
-          {/* Chat messages area */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Placeholder for messages */}
-            <div style={{ alignSelf: 'flex-start', background: '#f0f6ff', borderRadius: 8, padding: '12px 18px', fontSize: 16, color: '#222', maxWidth: '80%' }}>
-              Hello! I can help answer questions about the genome you're viewing.
-            </div>
-            <div style={{ color: '#aaa', fontSize: 14, fontStyle: 'italic', alignSelf: 'center', margin: '10px 0' }}>
-              Messages will appear here.
-            </div>
-          </div>
-          {/* Input area */}
-          <form style={{ display: 'flex', gap: 8, marginTop: 12 }} onSubmit={e => e.preventDefault()}>
-            <input
-              type="text"
-              placeholder="Type a message..."
-              style={{
-                flex: 1,
-                padding: '12px 16px',
-                borderRadius: 20,
-                border: '1px solid #ddd',
-                fontSize: 16,
-                background: '#f8f8fa',
-                outline: 'none'
-              }}
-            />
-            <button
-              type="submit"
-              style={{
-                background: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '50%',
-                width: 40,
-                height: 40,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 20,
-                cursor: 'not-allowed',
-                opacity: 0.7
-              }}
-              disabled
-            >→</button>
-          </form>
+          <ChatbotWidget />
         </div>
       </div>
     </div>

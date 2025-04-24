@@ -5,7 +5,21 @@ import sqlite3
 
 from flask import Flask, abort, jsonify, request
 from flask_cors import CORS
+import json
+import logging
+from dotenv import load_dotenv
+from werkzeug.exceptions import HTTPException  # Add this import
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+API_KEY = os.getenv('API_KEY')
 from search_routes import DB_BASE_DIR, search_bp
+from dotenv import load_dotenv
+from werkzeug.exceptions import HTTPException  # Add this import
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+API_KEY = os.getenv('API_KEY')
 
 # Configure logging
 logging.basicConfig(
@@ -174,13 +188,33 @@ def get_specific_gene(feature_id):
 @app.route("/api/v1/annotations/most_probable", methods=["GET"])
 def get_most_probable_annotation():
     """Return the annotation with the highest PPV for a given gene."""
-    chromosome_id = request.args.get("chromosome")
+    chromosome_id = request.args.get("chromosome") 
+    chromosome_id = request.args.get("chromosome") 
     gene_name = request.args.get("gene_name")
-    if not chromosome_id or not gene_name:
-        logging.warning("Missing 'chromosome' or 'gene_name' query parameter.")
-        abort(400, description="Missing 'chromosome' or 'gene_name' query parameter.")
-    conn, db_path = get_db_connection("annotations")
+    if not gene_name:
+        logging.warning("Missing 'gene_name' query parameter.")
+        abort(400, description="Missing 'gene_name' query parameter.")
+
+    conn = None
     try:
+        # Assuming 'annotations.db' is the correct db name for annotations
+        conn, db_path = get_db_connection("annotations")
+    if not gene_name:
+        logging.warning("Missing 'gene_name' query parameter.")
+        abort(400, description="Missing 'gene_name' query parameter.")
+
+    conn = None
+    try:
+        # Assuming 'annotations.db' is the correct db name for annotations
+        conn, db_path = get_db_connection("annotations")
+    if not gene_name:
+        logging.warning("Missing 'gene_name' query parameter.")
+        abort(400, description="Missing 'gene_name' query parameter.")
+
+    conn = None
+    try:
+        # Assuming 'annotations.db' is the correct db name for annotations
+        conn, db_path = get_db_connection("annotations")
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -192,24 +226,69 @@ def get_most_probable_annotation():
             (gene_name,),
         )
         row = cursor.fetchone()
-        conn.close()
-        if row:
-            logging.info(f"Annotation row: {row}")
-            logging.info(f"Annotation dict: {dict(row)}")
-            return jsonify(dict(row))
-        else:
+
+        if row is None:
+            # Explicitly handle not found case with 404 response (NOT using abort)
+
+        if row is None:
+            # Explicitly handle not found case with 404 response (NOT using abort)
+
+        if row is None:
+            # Explicitly handle not found case with 404 response (NOT using abort)
             logging.warning(
-                f"No annotation found for gene '{gene_name}' on chromosome '{chromosome_id}'."
+                f"No annotation found for gene '{gene_name}' in {db_path}."
+                f"No annotation found for gene '{gene_name}' in {db_path}."
             )
-            abort(
-                404,
-                description=f"No annotation found for gene '{gene_name}' on chromosome '{chromosome_id}'.",
-            )
-    except Exception as e:
-        logging.error(f"Error retrieving annotation: {e}")
+            if conn:
+                conn.close()
+            return jsonify({"error": f"No annotation found for gene '{gene_name}'"}), 404
+        
+        # Convert row to dictionary
+        annotation_dict = dict(row)
+        logging.info(f"Annotation row: {row}")
+        logging.info(f"Annotation dict: {annotation_dict}")
+        return jsonify(annotation_dict)
+
+    except sqlite3.Error as e:
+        logging.error(f"SQLite error querying {db_path} for gene '{gene_name}': {e}")
+            if conn:
+                conn.close()
+            return jsonify({"error": f"No annotation found for gene '{gene_name}'"}), 404
+        
+        # Convert row to dictionary
+        annotation_dict = dict(row)
+        logging.info(f"Annotation row: {row}")
+        logging.info(f"Annotation dict: {annotation_dict}")
+        return jsonify(annotation_dict)
+
+    except sqlite3.Error as e:
+        logging.error(f"SQLite error querying {db_path} for gene '{gene_name}': {e}")
         if conn:
             conn.close()
-        abort(500, description=f"Error retrieving annotation: {e}")
+        return jsonify({"error": "Database query error"}), 500
+    except Exception as e:
+        # Don't catch HTTPExceptions here - let them pass through to the client
+        # Only catch unexpected errors
+        if not isinstance(e, HTTPException):  
+            logging.error(
+                f"An unexpected error occurred processing gene '{gene_name}': {e}"
+            )
+            if conn:
+                conn.close()
+            return jsonify({"error": "Internal server error"}), 500
+        raise  # Re-raise HTTPExceptions
+        return jsonify({"error": "Database query error"}), 500
+    except Exception as e:
+        # Don't catch HTTPExceptions here - let them pass through to the client
+        # Only catch unexpected errors
+        if not isinstance(e, HTTPException):  
+            logging.error(
+                f"An unexpected error occurred processing gene '{gene_name}': {e}"
+            )
+            if conn:
+                conn.close()
+            return jsonify({"error": "Internal server error"}), 500
+        raise  # Re-raise HTTPExceptions
 
 
 @app.route("/api/v1/annotations/all", methods=["GET"])

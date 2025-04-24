@@ -11,3 +11,6 @@ shared/gene-function/test_results/*
 ensembl-mcp/.venv
 
 **/.venv/*
+visualizer/.env
+ensembl-mcp/ensembl_mcp_server/.env
+visualizer/cgpt-visualizer-website/.env

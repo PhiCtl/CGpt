@@ -1,10 +1,24 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request, status, Depends
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from .api.ensembl import EnsemblAPI
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (must be in the same directory as this server.py)
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+API_KEY = os.getenv('ANTHROPIC_API_KEY')
+if not API_KEY:
+    raise RuntimeError('ANTHROPIC_API_KEY not found in .env file. Please ensure .env exists and contains ANTHROPIC_API_KEY=...')
 
 app = FastAPI()
 ensembl = EnsemblAPI()
+
+# Dependency to require API key
+async def require_api_key(request: Request):
+    key = request.headers.get('x-api-key') or request.query_params.get('api_key')
+    if key != API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid or missing API key')
 
 class MCPRequest(BaseModel):
     method: str
@@ -15,7 +29,7 @@ class MCPResponse(BaseModel):
     error: Optional[str] = None
 
 @app.post("/mcp/ensembl")
-async def handle_mcp_request(request: MCPRequest = Body(...)):
+async def handle_mcp_request(request: MCPRequest = Body(...), api_key: None = Depends(require_api_key)):
     try:
         # Validate required parameters for each method
         if request.method == "lookup_gene":

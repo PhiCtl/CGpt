@@ -6,13 +6,14 @@ from typing import Dict, Any
 from datetime import datetime
 
 # Set your API key
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = anthropic.Anthropic()
                              
 
 class EnsemblClient:
     def __init__(self, mcp_server_url="http://localhost:8000/mcp/ensembl", debug=False):
         self.mcp_server_url = mcp_server_url
         self.debug = debug
+        self.api_key = os.environ.get("ANTHROPIC_API_KEY")  # Get the API key from environment variables
         
     def query(self, question: str) -> str:
         # Start a new debug session
@@ -142,10 +143,16 @@ class EnsemblClient:
             }
             
             try:
+                # Add the API key to the headers
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-api-key": self.api_key  # Include the API key in the request
+                }
+                
                 mcp_response = requests.post(
                     self.mcp_server_url,
                     json=mcp_request,
-                    headers={"Content-Type": "application/json"}
+                    headers=headers
                 )
                 
                 # Check if the request was successful

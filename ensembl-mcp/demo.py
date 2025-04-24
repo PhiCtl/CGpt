@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
+from dotenv import load_dotenv
 import os
+# Load .env BEFORE importing anything else
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), 'ensembl_mcp_server', '.env'))
+print("ANTHROPIC_API_KEY loaded:", os.getenv("ANTHROPIC_API_KEY"))
+
 from client.ensembl_client import EnsemblClient
 
 def main():
@@ -29,8 +34,6 @@ def main():
         try:
             # Get response from Claude
             response = client.query(question)
-            
-            # Print the response
             print(response)
         except Exception as e:
             print(f"Error: {str(e)}")
